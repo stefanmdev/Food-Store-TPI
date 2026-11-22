@@ -1,0 +1,6 @@
+# Dependencias autorizadas a ejecutar scripts de instalación.
+# pnpm 11 usa allowBuilds; pnpm 10 usa onlyBuiltDependencies.
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild
