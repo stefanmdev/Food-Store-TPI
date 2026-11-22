@@ -1,0 +1,332 @@
+### =====================================================================
+### Food Store · pruebas manuales de la API (VS Code REST Client)
+###
+### Estado inicial: base recién creada + `python -m app.db.seed`
+### (admin, 4 categorías con ids 1-4 y 12 productos con ids 1-12;
+###  el producto 12 «Flan casero» tiene stock 0).
+### Ejecutar en orden. REST Client guarda la cookie HttpOnly `access_token`
+### que entrega el login y la reenvía en las peticiones siguientes.
+### Los ids de pedidos, categorías y productos creados se toman de las
+### respuestas (`# @name`): un pedido rechazado también consume un valor de
+### la secuencia de PostgreSQL (las secuencias no se revierten con rollback).
+### La batería automatizada equivalente está en backend/tests (pytest).
+### =====================================================================
+
+@api = http://localhost:8000/api/v1
+
+### ---------------------------------------------------------------------
+### 1. Catálogo público
+### ---------------------------------------------------------------------
+
+### 1.1 Categorías activas → 200 (4)
+GET {{api}}/categorias
+
+### 1.2 Productos paginados → 200 {"total": 12, "items": [5 productos]}
+GET {{api}}/productos?skip=0&limit=5
+
+### 1.3 Búsqueda sin distinguir mayúsculas → 200 total 3
+GET {{api}}/productos?search=PIZZA
+
+### 1.4 Filtro por categoría y disponibilidad → 200 total 3
+GET {{api}}/productos?categoria_id=3&disponible=true
+
+### 1.5 limit fuera de rango → 422
+GET {{api}}/productos?limit=101
+
+### 1.6 Detalle con su categoría → 200 (stock 30)
+GET {{api}}/productos/1
+
+### 1.7 Producto inexistente → 404
+GET {{api}}/productos/999
+
+### ---------------------------------------------------------------------
+### 2. Registro y login del cliente
+### ---------------------------------------------------------------------
+
+### 2.1 Registro público → 201 (role "user" aunque se envíe role admin)
+# @name cliente
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{"username": "cliente1", "full_name": "Cliente Uno", "email": "cliente1@mail.com", "password": "Cliente123", "role": "admin"}
+
+### 2.2 Registro duplicado (mismo username) → 409
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{"username": "cliente1", "full_name": "Otro", "email": "otro@mail.com", "password": "Cliente123"}
+
+### 2.3 Contraseña corta → 422
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{"username": "cliente2", "full_name": "Cliente Dos", "email": "c2@mail.com", "password": "123"}
+
+### 2.4 Login con credenciales incorrectas → 401
+POST {{api}}/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+username=cliente1&password=incorrecta
+
+### 2.5 Login correcto → 200 {"message": "Login exitoso"} + Set-Cookie access_token (HttpOnly)
+POST {{api}}/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+username=cliente1&password=Cliente123
+
+### 2.6 Perfil → 200 UserPublic (sin hashed_password)
+GET {{api}}/auth/me
+
+### 2.7 Un cliente no puede escribir en el catálogo → 403
+POST {{api}}/categorias
+Content-Type: application/json
+
+{"nombre": "Ensaladas"}
+
+### ---------------------------------------------------------------------
+### 3. Pedidos del cliente (RN-01, RN-03, RN-04, RN-06)
+### ---------------------------------------------------------------------
+
+### 3.1 RN-01 compra correcta → 201 PENDIENTE, total 13500 (stock 1: 30→28, stock 7: 60→57)
+# @name pedidoEntregado
+POST {{api}}/pedidos
+Content-Type: application/json
+
+{"items": [{"producto_id": 1, "cantidad": 2}, {"producto_id": 7, "cantidad": 3}], "forma_pago": "EFECTIVO", "direccion_entrega": "Av. Siempre Viva 742", "notas": "Sin cebolla"}
+
+### 3.2 Verificar descuento de stock → 200 (stock 28)
+GET {{api}}/productos/1
+
+### 3.3 Producto inexistente → 404 (no se persiste nada: el stock del producto 1 sigue en 28)
+POST {{api}}/pedidos
+Content-Type: application/json
+
+{"items": [{"producto_id": 1, "cantidad": 1}, {"producto_id": 999, "cantidad": 1}], "forma_pago": "EFECTIVO", "direccion_entrega": "Av. Siempre Viva 742"}
+
+### 3.4 Stock insuficiente (producto 12 tiene stock 0) → 400
+POST {{api}}/pedidos
+Content-Type: application/json
+
+{"items": [{"producto_id": 12, "cantidad": 1}], "forma_pago": "EFECTIVO", "direccion_entrega": "Av. Siempre Viva 742"}
+
+### 3.5 Producto repetido → 400
+POST {{api}}/pedidos
+Content-Type: application/json
+
+{"items": [{"producto_id": 1, "cantidad": 1}, {"producto_id": 1, "cantidad": 2}], "forma_pago": "EFECTIVO", "direccion_entrega": "Av. Siempre Viva 742"}
+
+### 3.6 Sin ítems → 422
+POST {{api}}/pedidos
+Content-Type: application/json
+
+{"items": [], "forma_pago": "EFECTIVO", "direccion_entrega": "Av. Siempre Viva 742"}
+
+### 3.7 Cantidad 0 → 422
+POST {{api}}/pedidos
+Content-Type: application/json
+
+{"items": [{"producto_id": 1, "cantidad": 0}], "forma_pago": "EFECTIVO", "direccion_entrega": "Av. Siempre Viva 742"}
+
+### 3.8 RN-06 forma de pago inválida → 422
+POST {{api}}/pedidos
+Content-Type: application/json
+
+{"items": [{"producto_id": 1, "cantidad": 1}], "forma_pago": "TARJETA", "direccion_entrega": "Av. Siempre Viva 742"}
+
+### 3.9 RN-06 dirección de 4 caracteres → 422
+POST {{api}}/pedidos
+Content-Type: application/json
+
+{"items": [{"producto_id": 1, "cantidad": 1}], "forma_pago": "EFECTIVO", "direccion_entrega": "Av 1"}
+
+### 3.10 Producto 1 sin cambios tras los rechazos → 200 (stock 28)
+GET {{api}}/productos/1
+
+### 3.11 Pedido que luego cancelará el admin → 201 total 24600 (stock 6: 10→7)
+# @name pedidoAdmin
+POST {{api}}/pedidos
+Content-Type: application/json
+
+{"items": [{"producto_id": 6, "cantidad": 3}], "forma_pago": "TRANSFERENCIA", "direccion_entrega": "San Martín 456"}
+
+### 3.12 Pedido que cancelará el cliente → 201 total 4400 (stock 10: 25→23)
+# @name pedidoCliente
+POST {{api}}/pedidos
+Content-Type: application/json
+
+{"items": [{"producto_id": 10, "cantidad": 2}], "forma_pago": "EFECTIVO", "direccion_entrega": "Belgrano 789"}
+
+### 3.13 Mis pedidos (solo los propios) → 200 total 3
+GET {{api}}/pedidos
+
+### 3.14 RN-03 el dueño cancela en PENDIENTE → 200 CANCELADO
+PATCH {{api}}/pedidos/{{pedidoCliente.response.body.$.id}}/cancelar
+
+### 3.15 Stock restituido → 200 (stock 25)
+GET {{api}}/productos/10
+
+### 3.16 Cancelación repetida → 400 (no restituye dos veces)
+PATCH {{api}}/pedidos/{{pedidoCliente.response.body.$.id}}/cancelar
+
+### 3.17 Un cliente no puede cambiar estados → 403
+PATCH {{api}}/pedidos/{{pedidoEntregado.response.body.$.id}}/estado
+Content-Type: application/json
+
+{"estado": "ENTREGADO"}
+
+### 3.18 Logout → 200 y borra la cookie
+POST {{api}}/auth/logout
+
+### 3.19 Sin sesión → 401
+GET {{api}}/pedidos
+
+### ---------------------------------------------------------------------
+### 4. Administración
+### ---------------------------------------------------------------------
+
+### 4.1 Login admin → 200
+POST {{api}}/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+username=admin&password=Admin1234!
+
+### 4.2 Perfil del admin → 200
+# @name yo
+GET {{api}}/auth/me
+
+### 4.3 El admin ve todos los pedidos pendientes → 200 total 2
+GET {{api}}/pedidos?estado=PENDIENTE
+
+### 4.4 RN-02 transición inválida PENDIENTE → ENTREGADO → 400
+PATCH {{api}}/pedidos/{{pedidoEntregado.response.body.$.id}}/estado
+Content-Type: application/json
+
+{"estado": "ENTREGADO"}
+
+### 4.5 PENDIENTE → EN_PREPARACION → 200
+PATCH {{api}}/pedidos/{{pedidoEntregado.response.body.$.id}}/estado
+Content-Type: application/json
+
+{"estado": "EN_PREPARACION"}
+
+### 4.6 EN_PREPARACION → ENTREGADO → 200
+PATCH {{api}}/pedidos/{{pedidoEntregado.response.body.$.id}}/estado
+Content-Type: application/json
+
+{"estado": "ENTREGADO"}
+
+### 4.7 Estado terminal: ENTREGADO → CANCELADO → 400
+PATCH {{api}}/pedidos/{{pedidoEntregado.response.body.$.id}}/estado
+Content-Type: application/json
+
+{"estado": "CANCELADO"}
+
+### 4.8 RN-03 el admin cancela un pedido PENDIENTE → 200 CANCELADO
+PATCH {{api}}/pedidos/{{pedidoAdmin.response.body.$.id}}/estado
+Content-Type: application/json
+
+{"estado": "CANCELADO"}
+
+### 4.9 Stock restituido → 200 (stock 10)
+GET {{api}}/productos/6
+
+### 4.10 /cancelar es solo del dueño → 403
+PATCH {{api}}/pedidos/{{pedidoAdmin.response.body.$.id}}/cancelar
+
+### 4.11 Resumen → 200 {pendientes 0, en_preparacion 0, entregados 1, cancelados 2, pedidos_hoy 3, ingresos_entregados 13500}
+GET {{api}}/pedidos/resumen
+
+### 4.12 RN-05 cambiar el precio del producto → 200 (precio_base 9999)
+PUT {{api}}/productos/1
+Content-Type: application/json
+
+{"precio_base": 9999}
+
+### 4.13 El pedido conserva precio_unitario 4500 y total 13500 → 200
+GET {{api}}/pedidos/{{pedidoEntregado.response.body.$.id}}
+
+### 4.14 No existe edición ni borrado de pedidos → 405
+DELETE {{api}}/pedidos/{{pedidoEntregado.response.body.$.id}}
+
+### 4.15 Crear categoría → 201
+# @name categoria
+POST {{api}}/categorias
+Content-Type: application/json
+
+{"nombre": "Ensaladas", "descripcion": "Frescas"}
+
+### 4.16 Nombre duplicado (sin distinguir mayúsculas) → 409
+POST {{api}}/categorias
+Content-Type: application/json
+
+{"nombre": "ensaladas"}
+
+### 4.17 Actualización parcial → 200
+PUT {{api}}/categorias/{{categoria.response.body.$.id}}
+Content-Type: application/json
+
+{"descripcion": "Ensaladas frescas de estación"}
+
+### 4.18 Crear producto en categoría inexistente → 404
+POST {{api}}/productos
+Content-Type: application/json
+
+{"nombre": "Ensalada César", "precio_base": 5200, "stock": 10, "categoria_id": 999}
+
+### 4.19 Crear producto → 201
+# @name producto
+POST {{api}}/productos
+Content-Type: application/json
+
+{"nombre": "Ensalada César", "precio_base": 5200, "stock": 10, "categoria_id": {{categoria.response.body.$.id}}}
+
+### 4.20 Cambiar stock y disponibilidad → 200
+PATCH {{api}}/productos/{{producto.response.body.$.id}}/stock
+Content-Type: application/json
+
+{"stock": 20, "disponible": false}
+
+### 4.21 Stock negativo → 422
+PATCH {{api}}/productos/{{producto.response.body.$.id}}/stock
+Content-Type: application/json
+
+{"stock": -1}
+
+### 4.22 Baja lógica de producto → 204
+DELETE {{api}}/productos/{{producto.response.body.$.id}}
+
+### 4.23 Producto dado de baja → 404
+GET {{api}}/productos/{{producto.response.body.$.id}}
+
+### 4.24 Baja lógica de categoría → 204
+DELETE {{api}}/categorias/{{categoria.response.body.$.id}}
+
+### 4.25 El nombre no se libera → 409
+POST {{api}}/categorias
+Content-Type: application/json
+
+{"nombre": "Ensaladas"}
+
+### 4.26 Listado de usuarios → 200
+GET {{api}}/admin/usuarios
+
+### 4.27 Desactivar al cliente → 200 (disabled true)
+POST {{api}}/admin/usuarios/{{cliente.response.body.$.id}}/desactivar
+
+### 4.28 Desactivar de nuevo (idempotente) → 200
+POST {{api}}/admin/usuarios/{{cliente.response.body.$.id}}/desactivar
+
+### 4.29 El admin no puede desactivarse a sí mismo → 400
+POST {{api}}/admin/usuarios/{{yo.response.body.$.id}}/desactivar
+
+### 4.30 Usuario inexistente → 404
+POST {{api}}/admin/usuarios/999/activar
+
+### 4.31 Login del cliente desactivado → 400 «Cuenta de usuario desactivada»
+POST {{api}}/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+username=cliente1&password=Cliente123
+
+### 4.32 Reactivar al cliente (la sesión del admin sigue vigente) → 200 (disabled false)
+POST {{api}}/admin/usuarios/{{cliente.response.body.$.id}}/activar
