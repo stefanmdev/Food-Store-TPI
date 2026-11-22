@@ -64,7 +64,7 @@ export function CarritoPage() {
                         const cantidad = Math.floor(Number(evento.target.value))
                         if (Number.isFinite(cantidad) && cantidad >= 1) cambiarCantidad(item.producto_id, cantidad)
                       }}
-                      className="w-16 rounded-lg border border-stone-300 px-2 py-1.5 text-center"
+                      className="w-16 rounded-lg border border-stone-300 px-2 py-1.5 text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       aria-label={`Cantidad de ${item.nombre}`}
                     />
                     <Button
