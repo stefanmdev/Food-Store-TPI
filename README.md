@@ -7,7 +7,7 @@ Aplicación web fullstack para un negocio de comidas. Los clientes se registran,
 | | |
 |---|---|
 | **Repositorio público (GitHub)** | <https://github.com/stefanmdev/Food-Store-TPI> |
-| **Video de demostración** | ⚠️ **PENDIENTE** — completar con el enlace público al video |
+| **Video de demostración** | <https://youtu.be/iGRtZIcTBiw> |
 
 ---
 
