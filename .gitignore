@@ -1,4 +1,3 @@
-# Secretos y configuración local (se versionan solo los .env.example)
 .env
 .env.*
 !.env.example
@@ -16,14 +15,3 @@ __pycache__/
 node_modules/
 dist/
 *.tsbuildinfo
-
-# Herramientas locales, entregables y material de la cátedra
-.claude/
-*.zip
-*.mp4
-TPI_Food_Store.pdf
-UML-Trabajo Practico Integrador.jpeg
-
-# Documentación personal (no se publica)
-docs/AUDITORIA.md
-docs/GUION_VIDEO.md
